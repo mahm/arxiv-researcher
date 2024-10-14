@@ -17,14 +17,20 @@ $ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | 
 $ pip install uv
 ```
 
-本プロジェクトのセットアップは次のコマンドで行えます。
+### 1. `.env.sample`を`.env`にコピーし、OpenAI API Keyなどを設定してください。
+
+```
+$ cp .env.sample .env
+```
+
+### 2. 次のコマンドで、必要なパッケージをインストールします。
 
 ```
 $ uv venv
 $ uv sync
 ```
 
-UIの起動は次のコマンドで行えます。
+### 3. 次のコマンドで、UI(Streamlit)を起動します。
 
 ```
 $ make run
