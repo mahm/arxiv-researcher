@@ -20,8 +20,6 @@ from arxiv_researcher.ui.types import (
     Message,
 )
 
-APPROVE_TOKEN = "[APPROVE]"
-
 
 class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)

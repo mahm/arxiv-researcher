@@ -2,9 +2,8 @@ from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
-from langchain_openai import ChatOpenAI
 
-from arxiv_researcher.agent.arxiv_researcher import ArxivResearcher
+from arxiv_researcher.agent.main import ArxivResearcher
 from arxiv_researcher.settings import settings
 from arxiv_researcher.ui.types import (
     AlertMessage,

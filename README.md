@@ -17,8 +17,15 @@ $ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | 
 $ pip install uv
 ```
 
+本プロジェクトのセットアップは次のコマンドで行えます。
+
 ```
 $ uv venv
 $ uv sync
+```
+
+UIの起動は次のコマンドで行えます。
+
+```
 $ make run
 ```
