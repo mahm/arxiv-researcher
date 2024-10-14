@@ -2,22 +2,26 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langchain_openai import ChatOpenAI
 
-from arxiv_researcher.agent.arxiv_searcher import ArxivPaper, ArxivSearcher
+from arxiv_researcher.agent.event_emitter import EventEmitter
+from arxiv_researcher.searcher.searcher import Searcher
+from arxiv_researcher.settings import settings
 
 
 class TaskExecutor:
-    RELEVANCE_SCORE_THRESHOLD = 0.7
-
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(
+        self,
+        llm: ChatOpenAI,
+        searcher: Searcher,
+    ):
         self.llm = llm
-        self.searcher = ArxivSearcher(llm=llm, debug=True)
+        self.searcher = searcher
 
-    def search_task(self, goal_setting: str, query: str) -> list[ArxivPaper]:
+    def search_task(self, goal_setting: str, query: str) -> list[str]:
         return self.searcher.run(goal_setting=goal_setting, query=query)
 
     def run(
         self, goal_setting: str, tasks: list[str], max_workers: int = 5
-    ) -> list[ArxivPaper]:
+    ) -> list[str]:
         results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_task = {
@@ -31,19 +35,22 @@ class TaskExecutor:
                     results.extend(result)
                 except Exception as e:
                     print(f"タスク '{task}' の実行中にエラーが発生しました: {e}")
-        # 関連度がしきい値以上の結果のみを返す
-        return [
-            paper
-            for paper in results
-            if paper.relevance_score >= self.RELEVANCE_SCORE_THRESHOLD
-        ]
+        return results
 
 
 if __name__ == "__main__":
+    from arxiv_researcher.searcher.arxiv_searcher import ArxivSearcher
     from arxiv_researcher.settings import settings
+    from arxiv_researcher.ui.types import Message
 
-    executor = TaskExecutor(settings.llm)
-    results = executor.run(
-        goal_setting="", tasks=["量子コンピューティング", "深層学習"]
-    )
+    def on_search_progress(message: Message):
+        print(f"検索進捗: {message.content.content}")
+
+    event_emitter = EventEmitter()
+    event_emitter.on("search_progress", on_search_progress)
+
+    searcher = ArxivSearcher(settings.llm, event_emitter, max_results=10)
+
+    executor = TaskExecutor(searcher, settings.llm)
+    results = executor.run(goal_setting="", tasks=["量子コンピューティング"])
     print(results)

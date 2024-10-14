@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     cohere_rerank_model: str = "rerank-multilingual-v3.0"
     temperature: float = 0.0
+    max_search_results: int = 100
+    debug: bool = True
 
     def __init__(self, **values):
         super().__init__(**values)

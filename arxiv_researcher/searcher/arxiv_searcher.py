@@ -10,7 +10,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from arxiv_researcher.agent.event_emitter import EventEmitter
+from arxiv_researcher.searcher.searcher import Searcher
 from arxiv_researcher.settings import settings
+from arxiv_researcher.ui.types import Message, SearchProgress
 
 FIELD_SELECTOR_PROMPT = """\
 Determine the arXiv categories that need to be searched based on the user's query.
@@ -163,16 +166,22 @@ class ArxivPaper(BaseModel):
 </paper>"""
 
 
-class ArxivSearcher:
+class ArxivSearcher(Searcher):
+    RELEVANCE_SCORE_THRESHOLD = 0.7
+
     def __init__(
         self,
         llm: ChatOpenAI,
+        event_emitter: EventEmitter,
         cohere_client: cohere.Client = settings.cohere_client,
-        debug: bool = False,
+        max_results: int = settings.max_search_results,
+        debug: bool = settings.debug,
     ):
         self.llm = llm
+        self.event_emitter = event_emitter
         self.cohere_client = cohere_client
         self.current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        self.max_results = max_results
         self.debug = debug
 
     def _field_selector(self, query: str) -> ArxivFields:
@@ -197,9 +206,7 @@ class ArxivSearcher:
             {"goal_setting": goal_setting, "query": query, "feedback": feedback}
         )
 
-    def run(
-        self, goal_setting: str, query: str, max_results: int = 100
-    ) -> list[ArxivPaper]:
+    def run(self, goal_setting: str, query: str) -> list[dict]:
         base_url = "https://export.arxiv.org/api/query?search_query="
         max_retries = 3
         retry_count = 0
@@ -226,7 +233,7 @@ class ArxivSearcher:
             )
             encoded_search_query = urllib.parse.quote(search_query)
 
-            full_url = f"{base_url}{encoded_search_query}&sortBy=relevance&max_results={max_results}"
+            full_url = f"{base_url}{encoded_search_query}&sortBy=relevance&max_results={self.max_results}"
             if query_filterdate:
                 full_url += f"&submittedDate={query_filterdate}"
             if self.debug:
@@ -266,6 +273,15 @@ class ArxivSearcher:
             if papers:
                 if self.debug:
                     print("Papers found. Exiting retry loop.")
+                self._notify(
+                    SearchProgress(
+                        role="assistant",
+                        task=f"({len(papers)}件){query}",
+                        content=(
+                            f"検索クエリ: {expanded_query}\n" f"検索URL: {full_url}"
+                        ),
+                    ),
+                ),
                 break  # 結果が見つかったのでループを抜ける
 
             else:
@@ -279,6 +295,15 @@ class ArxivSearcher:
                 else:
                     if self.debug:
                         print("Max retries reached. No results found.")
+                    self._notify(
+                        SearchProgress(
+                            role="assistant",
+                            task=f"(0件){query}",
+                            content=(
+                                f"検索クエリ: {expanded_query}\n" f"検索URL: {full_url}"
+                            ),
+                        ),
+                    ),
                     break  # 最大リトライ回数に達したのでループを抜ける
 
         if papers:
@@ -295,9 +320,20 @@ class ArxivSearcher:
                 paper.relevance_score = result.relevance_score
                 reranked_papers.append(paper)
 
-            papers = reranked_papers
+            # 関連度がしきい値以上の結果のみを返す
+            papers = [
+                paper.model_dump()
+                for paper in reranked_papers
+                if paper.relevance_score >= self.RELEVANCE_SCORE_THRESHOLD
+            ]
 
         return papers
+
+    def _notify(self, search_progress: SearchProgress) -> None:
+        self.event_emitter.emit(
+            "search_progress",
+            Message(content=search_progress),
+        )
 
 
 def main():

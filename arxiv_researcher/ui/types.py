@@ -19,5 +19,11 @@ class AlertMessage(BaseModel):
     content: str
 
 
+class SearchProgress(BaseModel):
+    role: Literal["user", "assistant"]
+    task: str
+    content: str
+
+
 class Message(BaseModel):
-    content: ChatMessage | DataframeMessage | AlertMessage
+    content: ChatMessage | DataframeMessage | AlertMessage | SearchProgress

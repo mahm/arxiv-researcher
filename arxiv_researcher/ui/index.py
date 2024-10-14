@@ -10,34 +10,52 @@ from arxiv_researcher.ui.types import (
     ChatMessage,
     DataframeMessage,
     Message,
+    SearchProgress,
 )
 
 
-def show_message(message: Message | None):
+def show_chat_message(message: Message | None):
     if not message:
         return
-    if isinstance(message.content, ChatMessage):
-        chat_message: ChatMessage = message.content
-        with st.chat_message(chat_message.role):
-            st.markdown(chat_message.content)
-    elif isinstance(message.content, DataframeMessage):
-        dataframe_message: DataframeMessage = message.content
-        df = pd.DataFrame(dataframe_message.data)
-        with st.chat_message(dataframe_message.role):
-            st.markdown(dataframe_message.content)
-            st.dataframe(df)
-    elif isinstance(message.content, AlertMessage):
-        alert_message: AlertMessage = message.content
-        with st.chat_message(alert_message.role):
-            st.success(alert_message.content)
-    else:
-        raise ValueError(f"Invalid message type: {type(message.content)}")
+    chat_message: ChatMessage = message.content
+    with st.chat_message(chat_message.role):
+        st.markdown(chat_message.content)
+
+
+def show_dataframe_message(message: Message | None):
+    if not message:
+        return
+    dataframe_message: DataframeMessage = message.content
+    df = pd.DataFrame(dataframe_message.data)
+    with st.chat_message(dataframe_message.role):
+        st.markdown(dataframe_message.content)
+        st.dataframe(df)
+
+
+def show_alert_message(message: Message | None):
+    if not message:
+        return
+    alert_message: AlertMessage = message.content
+    with st.chat_message(alert_message.role):
+        st.success(alert_message.content)
+
+
+def show_search_progress(message: Message | None):
+    if not message:
+        return
+    search_progress: SearchProgress = message.content
+    with st.chat_message(search_progress.role):
+        with st.expander("Search Progress", expanded=False):
+            st.markdown(search_progress.content)
 
 
 def init_session_state():
     if "researcher" not in st.session_state:
         researcher = ArxivResearcher(llm=settings.llm)
-        researcher.subscribe(show_message)
+        researcher.subscribe("chat_message", show_chat_message)
+        researcher.subscribe("dataframe_message", show_dataframe_message)
+        researcher.subscribe("alert_message", show_alert_message)
+        researcher.subscribe("search_progress", show_search_progress)
         st.session_state.researcher = researcher
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = uuid4().hex
@@ -78,5 +96,5 @@ def main():
 
     query = st.chat_input("What do you want to know? I will give you an answer.")
     if query:
-        with st.spinner("Searching..."):
+        with st.spinner("Processing..."):
             process_query(query)
