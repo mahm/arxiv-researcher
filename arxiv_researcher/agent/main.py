@@ -1,5 +1,6 @@
 import operator
-from typing import Annotated, Callable, Literal, Tuple
+from logging import getLogger
+from typing import Annotated, Callable, Iterator, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -15,13 +16,14 @@ from arxiv_researcher.agent.reporter import Reporter
 from arxiv_researcher.agent.task_executor import TaskExecutor
 from arxiv_researcher.agent.utility import dict_to_xml_str
 from arxiv_researcher.searcher.arxiv_searcher import ArxivSearcher
-from arxiv_researcher.settings import settings
 from arxiv_researcher.ui.types import (
     AlertMessage,
     ChatMessage,
     DataframeMessage,
     Message,
 )
+
+logger = getLogger(__name__)
 
 
 class ArxivResearcherState(BaseModel):
@@ -54,20 +56,16 @@ class ArxivResearcher(EventEmitter):
     def subscribe(self, event: str, subscriber: Callable[[str, Message], None]) -> None:
         self.on(event, subscriber)
 
-    def handle_human_message(self, human_message: str, thread_id: str) -> None:
-        if self.is_next_human_feedback_node(thread_id):
-            self.graph.update_state(
-                config=self._config(thread_id),
-                values={"human_inputs": [human_message]},
-                as_node="human_feedback",
-            )
-        else:
-            self.graph.update_state(
-                config=self._config(thread_id),
-                values={"human_inputs": [human_message]},
-                as_node=START,
-            )
-        self._stream_events(human_message=human_message, thread_id=thread_id)
+    def handle_human_message(self, query: str, thread_id: str) -> Iterator[Message]:
+        node = (
+            "human_feedback" if self.is_next_human_feedback_node(thread_id) else START
+        )
+        self.graph.update_state(
+            config=self._config(thread_id),
+            values={"human_inputs": [query]},
+            as_node=node,
+        )
+        return self._stream_events(query=query, thread_id=thread_id)
 
     def is_next_human_feedback_node(self, thread_id: str) -> bool:
         graph_next = self._get_state(thread_id).next
@@ -111,6 +109,7 @@ class ArxivResearcher(EventEmitter):
         return {"configurable": {"thread_id": thread_id}}
 
     def _goal_setting(self, state: ArxivResearcherState) -> dict:
+        logger.info("goal_setting")
         human_input = state.human_inputs[-1]
         goal: Goal = self.goal_optimizer.run(human_input)
         return {"goal": goal}
@@ -123,10 +122,12 @@ class ArxivResearcher(EventEmitter):
         )
 
     def _human_feedback(self, state: ArxivResearcherState) -> None:
+        logger.info("human_feedback")
         # ユーザーからの入力を待つ
         pass
 
     def _decompose_query(self, state: ArxivResearcherState) -> dict:
+        logger.info("decompose_query")
         goal: Goal = state.goal
         decomposed_tasks: DecomposedTasks = self.query_decomposer.run(goal.content)
         return {
@@ -136,6 +137,7 @@ class ArxivResearcher(EventEmitter):
         }
 
     def _execute_task(self, state: ArxivResearcherState) -> dict:
+        logger.info("execute_task")
         results: list[dict] = self.task_executor.run(
             goal_setting=state.goal.content,
             tasks=state.tasks,
@@ -153,6 +155,7 @@ class ArxivResearcher(EventEmitter):
             return "generate_report"
 
     def _generate_report(self, state: ArxivResearcherState) -> dict:
+        logger.info("generate_report")
         results: list[dict] = state.results
         query: str = state.goal.content
         final_output: str = self.reporter.run(
@@ -162,15 +165,11 @@ class ArxivResearcher(EventEmitter):
         return {"final_output": final_output}
 
     def _terminate(self, state: ArxivResearcherState) -> None:
+        logger.info("terminate")
         self.goal_optimizer.reset()
         pass
 
-    def _stream_events(self, human_message: str | None, thread_id: str):
-        if human_message:
-            self._notify(
-                "chat_message",
-                ChatMessage(role="user", content=human_message),
-            )
+    def _stream_events(self, query: str | None, thread_id: str) -> Iterator[Message]:
         for event in self.graph.stream(
             input=None,
             config=self._config(thread_id),
@@ -185,67 +184,66 @@ class ArxivResearcher(EventEmitter):
                 "generate_report",
                 "terminate",
             ]:
-                if node == "goal_setting":
-                    self._goal_setting_message(event[node])
-                elif node == "decompose_query":
-                    self._decompose_query_message(event[node])
-                elif node == "execute_task":
-                    self._execute_task_message(event[node])
-                elif node == "generate_report":
-                    self._generate_report_message(event[node])
-                elif node == "terminate":
-                    self._terminate_message(event[node])
-                else:
-                    pass
+                yield self._process_node_event(node, event[node])
 
-    def _goal_setting_message(self, update_state: dict) -> None:
+    def _process_node_event(self, node: str, update_state: dict) -> Message:
+        if node == "goal_setting":
+            return self._goal_setting_message(update_state)
+        elif node == "decompose_query":
+            return self._decompose_query_message(update_state)
+        elif node == "execute_task":
+            return self._execute_task_message(update_state)
+        elif node == "generate_report":
+            return self._generate_report_message(update_state)
+        elif node == "terminate":
+            return self._terminate_message(update_state)
+
+    def _goal_setting_message(self, update_state: dict) -> Message:
         goal: Goal = update_state["goal"]
-        if goal.is_need_human_feedback:
-            message = ChatMessage(
-                role="assistant",
-                content=f"【追加質問】\n{goal.additional_question}",
-            )
-        else:
-            message = ChatMessage(
-                role="assistant", content=f"【目標設定】\n{goal.content}"
-            )
-        self._notify("chat_message", message)
-
-    def _decompose_query_message(self, update_state: dict) -> None:
-        tasks = "\n".join([f"- {task}" for task in update_state["tasks"]])
-        message = ChatMessage(
-            role="assistant", content=f"タスクを分解しました。\n{tasks}"
+        content = (
+            f"【追加質問】\n{goal.additional_question}"
+            if goal.is_need_human_feedback
+            else f"【目標設定】\n{goal.content}"
         )
-        self._notify("chat_message", message)
+        return Message(
+            is_need_human_feedback=goal.is_need_human_feedback,
+            content=ChatMessage(role="assistant", content=content),
+        )
 
-    def _execute_task_message(self, update_state: dict) -> None:
-        results: list[dict] = update_state["results"]
-        if len(results) == 0:
-            message = ChatMessage(
-                role="assistant",
-                content="検索結果が見つかりませんでした。",
+    def _decompose_query_message(self, update_state: dict) -> Message:
+        tasks = "\n".join([f"- {task}" for task in update_state["tasks"]])
+        return Message(
+            content=ChatMessage(
+                role="assistant", content=f"タスクを分解しました。\n{tasks}"
             )
-            self._notify("chat_message", message)
-        else:
-            data = [item for item in results]
-            message = DataframeMessage(
+        )
+
+    def _execute_task_message(self, update_state: dict) -> Message:
+        results: list[dict] = update_state["results"]
+        if not results:
+            return Message(
+                content=ChatMessage(
+                    role="assistant", content="検索結果が見つかりませんでした。"
+                )
+            )
+        return Message(
+            content=DataframeMessage(
                 role="assistant",
                 content=f"参考になる文献が{len(results)}件見つかりました。",
-                data=data,
+                data=results,
             )
-            self._notify("dataframe_message", message)
-
-    def _generate_report_message(self, update_state: dict) -> None:
-        final_output: str = update_state["final_output"]
-        message = ChatMessage(
-            role="assistant",
-            content=final_output,
         )
-        self._notify("chat_message", message)
 
-    def _terminate_message(self, update_state: dict) -> None:
-        message = AlertMessage(
-            role="assistant",
-            content="調査が終了しました。新しい文献調査を行う場合は、続けて質問してください。",
+    def _generate_report_message(self, update_state: dict) -> Message:
+        return Message(
+            content=ChatMessage(role="assistant", content=update_state["final_output"])
         )
-        self._notify("alert_message", message)
+
+    def _terminate_message(self, update_state: dict) -> Message:
+        return Message(
+            is_done=True,
+            content=AlertMessage(
+                role="assistant",
+                content="調査が終了しました。新しい文献調査を行う場合は、続けて質問してください。",
+            ),
+        )

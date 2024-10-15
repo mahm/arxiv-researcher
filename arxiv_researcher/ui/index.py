@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from uuid import uuid4
 
 import pandas as pd
@@ -14,51 +15,41 @@ from arxiv_researcher.ui.types import (
 )
 
 
-def show_chat_message(message: Message | None):
+class AppState(Enum):
+    IDLE = auto()
+    PROCESSING = auto()
+    WAITING_FOR_USER = auto()
+
+
+def show_message(message: Message | None):
     if not message:
         return
-    chat_message: ChatMessage = message.content
-    with st.chat_message(chat_message.role):
-        st.markdown(chat_message.content)
-
-
-def show_dataframe_message(message: Message | None):
-    if not message:
-        return
-    dataframe_message: DataframeMessage = message.content
-    df = pd.DataFrame(dataframe_message.data)
-    with st.chat_message(dataframe_message.role):
-        st.markdown(dataframe_message.content)
-        st.dataframe(df)
-
-
-def show_alert_message(message: Message | None):
-    if not message:
-        return
-    alert_message: AlertMessage = message.content
-    with st.chat_message(alert_message.role):
-        st.success(alert_message.content)
-
-
-def show_search_progress(message: Message | None):
-    if not message:
-        return
-    search_progress: SearchProgress = message.content
-    with st.chat_message(search_progress.role):
-        with st.expander("Search Progress", expanded=False):
-            st.markdown(search_progress.content)
+    content = message.content
+    with st.chat_message(content.role):
+        if isinstance(content, ChatMessage):
+            st.markdown(content.content)
+        elif isinstance(content, DataframeMessage):
+            st.markdown(content.content)
+            st.dataframe(pd.DataFrame(content.data))
+        elif isinstance(content, AlertMessage):
+            st.success(content.content)
+        elif isinstance(content, SearchProgress):
+            with st.expander("Search Progress", expanded=False):
+                st.markdown(content.content)
 
 
 def init_session_state():
     if "researcher" not in st.session_state:
         researcher = ArxivResearcher(llm=settings.llm)
-        researcher.subscribe("chat_message", show_chat_message)
-        researcher.subscribe("dataframe_message", show_dataframe_message)
-        researcher.subscribe("alert_message", show_alert_message)
-        researcher.subscribe("search_progress", show_search_progress)
         st.session_state.researcher = researcher
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = uuid4().hex
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "stream_generator" not in st.session_state:
+        st.session_state.stream_generator = None
+    if "app_state" not in st.session_state:
+        st.session_state.app_state = AppState.IDLE
 
 
 def set_page_config():
@@ -77,6 +68,9 @@ def display_sidebar():
         ):
             st.session_state.researcher.reset()
             st.session_state.thread_id = uuid4().hex
+            st.session_state.messages = []
+            st.session_state.stream_generator = None
+            st.session_state.app_state = AppState.IDLE
             st.rerun()
 
 
@@ -84,8 +78,25 @@ def display_header():
     st.title("arXiv Researcher")
 
 
-def process_query(query: str):
-    st.session_state.researcher.handle_human_message(query, st.session_state.thread_id)
+def process_stream():
+    if st.session_state.stream_generator is None:
+        return
+
+    try:
+        with st.spinner("Processing..."):
+            message = next(st.session_state.stream_generator)
+            st.session_state.messages.append(message)
+            show_message(message)
+
+            if message.is_done:
+                st.session_state.stream_generator = None
+                st.session_state.app_state = AppState.IDLE
+            elif message.is_need_human_feedback:
+                st.session_state.app_state = AppState.WAITING_FOR_USER
+            st.rerun()
+    except StopIteration:
+        st.session_state.stream_generator = None
+        st.session_state.app_state = AppState.IDLE
 
 
 def main():
@@ -94,7 +105,28 @@ def main():
     display_sidebar()
     display_header()
 
+    for message in st.session_state.messages:
+        show_message(message)
+
     query = st.chat_input("What do you want to know? I will give you an answer.")
-    if query:
-        with st.spinner("Processing..."):
-            process_query(query)
+
+    if query and st.session_state.app_state != AppState.PROCESSING:
+        st.session_state.messages.append(
+            Message(content=ChatMessage(role="user", content=query))
+        )
+        show_message(st.session_state.messages[-1])
+        st.session_state.stream_generator = (
+            st.session_state.researcher.handle_human_message(
+                query=query,
+                thread_id=st.session_state.thread_id,
+            )
+        )
+        st.session_state.app_state = AppState.PROCESSING
+        st.rerun()
+
+    if st.session_state.app_state == AppState.PROCESSING:
+        process_stream()
+
+
+if __name__ == "__main__":
+    main()

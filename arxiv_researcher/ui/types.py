@@ -26,4 +26,6 @@ class SearchProgress(BaseModel):
 
 
 class Message(BaseModel):
+    is_need_human_feedback: bool = False
+    is_done: bool = False
     content: ChatMessage | DataframeMessage | AlertMessage | SearchProgress

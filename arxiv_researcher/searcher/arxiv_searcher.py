@@ -309,7 +309,7 @@ class ArxivSearcher(Searcher):
         if papers:
             reranked = self.cohere_client.rerank(
                 model=settings.cohere_rerank_model,
-                query=query,
+                query=f"{goal_setting}\n{query}",
                 documents=[f"{paper.title}\n{paper.summary}" for paper in papers],
                 top_n=min(10, len(papers)),
             )
