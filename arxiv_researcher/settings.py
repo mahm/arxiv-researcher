@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     cohere_rerank_model: str = "rerank-multilingual-v3.0"
     temperature: float = 0.0
     max_search_results: int = 100
+    max_workers: int = 5
     debug: bool = True
 
     def __init__(self, **values):

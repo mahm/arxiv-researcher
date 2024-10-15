@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from langchain_openai import ChatOpenAI
 
@@ -15,32 +16,53 @@ class TaskExecutor:
     ):
         self.llm = llm
         self.searcher = searcher
-
-    def search_task(self, goal_setting: str, query: str) -> list[str]:
-        return self.searcher.run(goal_setting=goal_setting, query=query)
+        self.executor = ThreadPoolExecutor(max_workers=settings.max_workers)
 
     def run(
-        self, goal_setting: str, tasks: list[str], max_workers: int = 5
+        self,
+        goal_setting: str,
+        tasks: list[str],
+        max_workers: int = settings.max_workers,
+    ) -> list[str]:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.arun(goal_setting, tasks, max_workers))
+        finally:
+            loop.close()
+
+    async def arun(
+        self,
+        goal_setting: str,
+        tasks: list[str],
+        max_workers: int = settings.max_workers,
     ) -> list[str]:
         results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_task = {
-                executor.submit(self.search_task, goal_setting, task): task
-                for task in tasks
-            }
-            for future in as_completed(future_to_task):
+        semaphore = asyncio.Semaphore(max_workers)
+
+        async def search_task(goal_setting: str, query: str) -> list[str]:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self.executor,
+                self.searcher.run,
+                goal_setting,
+                query,
+            )
+
+        async def bounded_search(task):
+            async with semaphore:
                 try:
-                    task = future_to_task[future]
-                    result = future.result()
+                    result = await search_task(goal_setting, task)
                     results.extend(result)
                 except Exception as e:
                     print(f"タスク '{task}' の実行中にエラーが発生しました: {e}")
+
+        await asyncio.gather(*[bounded_search(task) for task in tasks])
         return results
 
 
 if __name__ == "__main__":
     from arxiv_researcher.searcher.arxiv_searcher import ArxivSearcher
-    from arxiv_researcher.settings import settings
     from arxiv_researcher.ui.types import Message
 
     def on_search_progress(message: Message):
@@ -51,6 +73,6 @@ if __name__ == "__main__":
 
     searcher = ArxivSearcher(settings.llm, event_emitter, max_results=10)
 
-    executor = TaskExecutor(searcher, settings.llm)
+    executor = TaskExecutor(settings.llm, searcher)
     results = executor.run(goal_setting="", tasks=["量子コンピューティング"])
     print(results)
