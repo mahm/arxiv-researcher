@@ -8,6 +8,12 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ExpandMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    title: str
+    content: str | list[dict]
+
+
 class DataframeMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -28,4 +34,6 @@ class SearchProgress(BaseModel):
 class Message(BaseModel):
     is_need_human_feedback: bool = False
     is_done: bool = False
-    content: ChatMessage | DataframeMessage | AlertMessage | SearchProgress
+    content: (
+        ChatMessage | ExpandMessage | DataframeMessage | AlertMessage | SearchProgress
+    )

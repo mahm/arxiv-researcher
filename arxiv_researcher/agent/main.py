@@ -20,6 +20,7 @@ from arxiv_researcher.ui.types import (
     AlertMessage,
     ChatMessage,
     DataframeMessage,
+    ExpandMessage,
     Message,
 )
 
@@ -200,21 +201,30 @@ class ArxivResearcher(EventEmitter):
 
     def _goal_setting_message(self, update_state: dict) -> Message:
         goal: Goal = update_state["goal"]
-        content = (
-            f"【追加質問】\n{goal.additional_question}"
-            if goal.is_need_human_feedback
-            else f"【目標設定】\n{goal.content}"
-        )
-        return Message(
-            is_need_human_feedback=goal.is_need_human_feedback,
-            content=ChatMessage(role="assistant", content=content),
-        )
+        if goal.is_need_human_feedback:
+            return Message(
+                is_need_human_feedback=True,
+                content=ChatMessage(
+                    role="assistant",
+                    content=goal.additional_question,
+                ),
+            )
+        else:
+            return Message(
+                content=ExpandMessage(
+                    role="assistant",
+                    title="目標設定が完了しました",
+                    content=goal.content,
+                )
+            )
 
     def _decompose_query_message(self, update_state: dict) -> Message:
         tasks = "\n".join([f"- {task}" for task in update_state["tasks"]])
         return Message(
-            content=ChatMessage(
-                role="assistant", content=f"タスクを分解しました。\n{tasks}"
+            content=ExpandMessage(
+                role="assistant",
+                title="タスクを分解しました",
+                content=tasks,
             )
         )
 
@@ -227,10 +237,10 @@ class ArxivResearcher(EventEmitter):
                 )
             )
         return Message(
-            content=DataframeMessage(
+            content=ExpandMessage(
                 role="assistant",
-                content=f"参考になる文献が{len(results)}件見つかりました。",
-                data=results,
+                title=f"参考になる文献が{len(results)}件見つかりました。",
+                content=results,
             )
         )
 

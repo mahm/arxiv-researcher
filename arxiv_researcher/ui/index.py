@@ -10,6 +10,7 @@ from arxiv_researcher.ui.types import (
     AlertMessage,
     ChatMessage,
     DataframeMessage,
+    ExpandMessage,
     Message,
     SearchProgress,
 )
@@ -28,6 +29,12 @@ def show_message(message: Message | None):
     with st.chat_message(content.role):
         if isinstance(content, ChatMessage):
             st.markdown(content.content)
+        elif isinstance(content, ExpandMessage):
+            with st.expander(content.title, expanded=True):
+                if isinstance(content.content, list):
+                    st.dataframe(pd.DataFrame(content.content))
+                else:
+                    st.markdown(content.content)
         elif isinstance(content, DataframeMessage):
             st.markdown(content.content)
             st.dataframe(pd.DataFrame(content.data))
