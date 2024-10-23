@@ -53,18 +53,18 @@ CURRENT_DATE: {current_date}
 </input_format>
 """.strip()
 
-class RewrittenQuery(BaseModel):
+class Goal(BaseModel):
     content: str = Field(default="", description="書き換えられたクエリ")
 
-class Queryrewrite:
+class GoalOptimizer:
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
         self.conversation_history = []
 
-    def run(self, query: str, history) -> RewrittenQuery:
+    def run(self, query: str, history) -> Goal:
         prompt = ChatPromptTemplate.from_template(QUERY_REWRITE_PROMPT)
-        chain = prompt | self.llm.with_structured_output(RewrittenQuery)
+        chain = prompt | self.llm.with_structured_output(Goal)
         query_rewrite = chain.invoke(
             {
                 "current_date": self.current_date,

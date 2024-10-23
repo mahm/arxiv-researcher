@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-Hearing_OPTIMIZER_PROMPT = """\
+HumanFeedbackChecker_PROMPT = """\
 CURRENT_DATE: {current_date}
 -----
 <system>
@@ -88,14 +88,14 @@ class Hearing(BaseModel):
     )
     additional_question: str = Field(default="", description="追加の質問")
 
-class HearingOptimizer:
+class HumanFeedbackChecker:
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
         self.conversation_history = []
 
-    def run(self, query: str) -> Hearing:
-        prompt = ChatPromptTemplate.from_template(Hearing_OPTIMIZER_PROMPT)
+    def run(self, query: str) -> tuple[Hearing, str]:
+        prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
         chain = prompt | self.llm.with_structured_output(Hearing)
         hearing = chain.invoke(
             {
