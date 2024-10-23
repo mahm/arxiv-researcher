@@ -10,7 +10,8 @@ from langgraph.pregel.types import StateSnapshot
 from pydantic import BaseModel, Field
 
 from arxiv_researcher.agent.event_emitter import EventEmitter
-from arxiv_researcher.agent.goal_optimizer import Goal, GoalOptimizer
+from arxiv_researcher.agent.hearing_optimizer import Hearing, HearingOptimizer
+from arxiv_researcher.agent.query_rewrite import RewrittenQuery, Queryrewrite
 from arxiv_researcher.agent.query_decomposer import DecomposedTasks, QueryDecomposer
 from arxiv_researcher.agent.reporter import Reporter
 from arxiv_researcher.agent.task_executor import TaskExecutor
@@ -25,11 +26,12 @@ from arxiv_researcher.ui.types import (
 )
 
 logger = getLogger(__name__)
-
+history = ""
 
 class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)
-    goal: Goal = Field(default=None)
+    hearing: Hearing = Field(default=None)
+    rewrite: RewrittenQuery = Field(default=None)
     tasks: list[str] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
     final_output: str = Field(default="")
@@ -39,7 +41,8 @@ class ArxivResearcher(EventEmitter):
     def __init__(self, llm: ChatOpenAI) -> None:
         super().__init__()
         self.subscribers: list[Callable[[str, Message], None]] = []
-        self.goal_optimizer = GoalOptimizer(llm)
+        self.hearing_optimizer = HearingOptimizer(llm)
+        self.query_rewrite = Queryrewrite(llm)
         self.query_decomposer = QueryDecomposer(llm)
         self.task_executor = TaskExecutor(
             llm, searcher=ArxivSearcher(llm, event_emitter=self)
@@ -58,9 +61,11 @@ class ArxivResearcher(EventEmitter):
         self.on(event, subscriber)
 
     def handle_human_message(self, query: str, thread_id: str) -> Iterator[Message]:
+        # print(f"Handling message for query: {query}, thread_id: {thread_id}")
         node = (
             "human_feedback" if self.is_next_human_feedback_node(thread_id) else START
         )
+        print("今いる場所", node)
         self.graph.update_state(
             config=self._config(thread_id),
             values={"human_inputs": [query]},
@@ -76,21 +81,24 @@ class ArxivResearcher(EventEmitter):
         return self.graph.get_graph().draw_mermaid_png()
 
     def reset(self) -> None:
-        self.graph.reset()
+        # self.graph.reset()
+        self.graph = self._create_graph()
 
     def _create_graph(self) -> StateGraph:
         graph = StateGraph(ArxivResearcherState)
-
-        graph.add_node("goal_setting", self._goal_setting)
+    
+        graph.add_node("user_hearing", self._hearing_setting)
         graph.add_node("human_feedback", self._human_feedback)
+        graph.add_node("rewrite_query", self._rewrite_query)
         graph.add_node("decompose_query", self._decompose_query)
         graph.add_node("execute_task", self._execute_task)
         graph.add_node("generate_report", self._generate_report)
         graph.add_node("terminate", self._terminate)
 
-        graph.add_edge(START, "goal_setting")
-        graph.add_conditional_edges("goal_setting", self._route_goal_setting)
-        graph.add_edge("human_feedback", "goal_setting")
+        graph.add_edge(START, "user_hearing")
+        graph.add_conditional_edges("user_hearing", self._route_hearing_setting)
+        graph.add_edge("human_feedback", "user_hearing")
+        graph.add_edge("rewrite_query", "decompose_query")
         graph.add_edge("decompose_query", "execute_task")
         graph.add_conditional_edges("execute_task", self._route_execute_task)
         graph.add_edge("generate_report", "terminate")
@@ -109,17 +117,18 @@ class ArxivResearcher(EventEmitter):
     def _config(self, thread_id: str) -> RunnableConfig:
         return {"configurable": {"thread_id": thread_id}}
 
-    def _goal_setting(self, state: ArxivResearcherState) -> dict:
-        logger.info("goal_setting")
+    def _hearing_setting(self, state: ArxivResearcherState) -> dict:
+        global history
+        logger.info("hearing")
         human_input = state.human_inputs[-1]
-        goal: Goal = self.goal_optimizer.run(human_input)
-        return {"goal": goal}
+        hearing, history = self.hearing_optimizer.run(human_input)
+        return {"hearing": hearing}
 
-    def _route_goal_setting(
+    def _route_hearing_setting(
         self, state: ArxivResearcherState
-    ) -> Literal["human_feedback", "decompose_query"]:
+    ) -> Literal["human_feedback", "rewrite_query"]:
         return (
-            "human_feedback" if state.goal.is_need_human_feedback else "decompose_query"
+            "human_feedback" if state.hearing.is_need_human_feedback else "rewrite_query"
         )
 
     def _human_feedback(self, state: ArxivResearcherState) -> None:
@@ -127,10 +136,16 @@ class ArxivResearcher(EventEmitter):
         # ユーザーからの入力を待つ
         pass
 
+    def _rewrite_query(self, state: ArxivResearcherState) -> dict:
+        logger.info("rewrite_query")
+        human_input = state.human_inputs[-1]
+        rewrite: RewrittenQuery = self.query_rewrite.run(human_input, history)
+        return {"rewrite": rewrite}
+
     def _decompose_query(self, state: ArxivResearcherState) -> dict:
         logger.info("decompose_query")
-        goal: Goal = state.goal
-        decomposed_tasks: DecomposedTasks = self.query_decomposer.run(goal.content)
+        rewrite: RewrittenQuery = state.rewrite
+        decomposed_tasks: DecomposedTasks = self.query_decomposer.run(rewrite.content)
         return {
             "tasks": decomposed_tasks.tasks,
             "current_task_index": 0,
@@ -140,7 +155,7 @@ class ArxivResearcher(EventEmitter):
     def _execute_task(self, state: ArxivResearcherState) -> dict:
         logger.info("execute_task")
         results: list[dict] = self.task_executor.run(
-            goal_setting=state.goal.content,
+            hearing_setting=state.rewrite.content,
             tasks=state.tasks,
         )
         return {
@@ -158,7 +173,7 @@ class ArxivResearcher(EventEmitter):
     def _generate_report(self, state: ArxivResearcherState) -> dict:
         logger.info("generate_report")
         results: list[dict] = state.results
-        query: str = state.goal.content
+        query: str = state.rewrite.content
         final_output: str = self.reporter.run(
             context="\n".join([dict_to_xml_str(item) for item in results]),
             query=query,
@@ -167,7 +182,7 @@ class ArxivResearcher(EventEmitter):
 
     def _terminate(self, state: ArxivResearcherState) -> None:
         logger.info("terminate")
-        self.goal_optimizer.reset()
+        self.hearing_optimizer.reset()
         pass
 
     def _stream_events(self, query: str | None, thread_id: str) -> Iterator[Message]:
@@ -178,8 +193,10 @@ class ArxivResearcher(EventEmitter):
         ):
             # 実行ノードの情報を取得
             node = list(event.keys())[0]
+            print("今いる場所",node)
             if node in [
-                "goal_setting",
+                "user_hearing",
+                "rewrite_query",
                 "decompose_query",
                 "execute_task",
                 "generate_report",
@@ -188,8 +205,10 @@ class ArxivResearcher(EventEmitter):
                 yield self._process_node_event(node, event[node])
 
     def _process_node_event(self, node: str, update_state: dict) -> Message:
-        if node == "goal_setting":
-            return self._goal_setting_message(update_state)
+        if node == "user_hearing":
+            return self._hearing_setting_message(update_state)
+        elif node == "rewrite_query":
+            return self._rewrite_query_message(update_state)
         elif node == "decompose_query":
             return self._decompose_query_message(update_state)
         elif node == "execute_task":
@@ -199,24 +218,34 @@ class ArxivResearcher(EventEmitter):
         elif node == "terminate":
             return self._terminate_message(update_state)
 
-    def _goal_setting_message(self, update_state: dict) -> Message:
-        goal: Goal = update_state["goal"]
-        if goal.is_need_human_feedback:
+    def _hearing_setting_message(self, update_state: dict) -> Message:
+        hearing: Hearing = update_state["hearing"]
+        if hearing.is_need_human_feedback:
             return Message(
                 is_need_human_feedback=True,
                 content=ChatMessage(
                     role="assistant",
-                    content=goal.additional_question,
+                    content=hearing.additional_question,
                 ),
             )
         else:
             return Message(
                 content=ExpandMessage(
                     role="assistant",
-                    title="目標設定が完了しました",
-                    content=goal.content,
+                    title="ヒアリングが完了しました",
+                    content="",
                 )
             )
+        
+    def _rewrite_query_message(self, update_state: dict) -> Message:
+        rewrite: RewrittenQuery = update_state["rewrite"]
+        return Message(
+            content=ExpandMessage(
+                role="assistant",
+                title="クエリを書き換えました",
+                content=rewrite.content,
+            )
+        )
 
     def _decompose_query_message(self, update_state: dict) -> Message:
         tasks = "\n".join([f"- {task}" for task in update_state["tasks"]])

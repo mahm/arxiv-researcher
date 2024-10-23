@@ -20,14 +20,14 @@ class TaskExecutor:
 
     def run(
         self,
-        goal_setting: str,
+        hearing_setting: str,
         tasks: list[str],
         max_workers: int = settings.max_workers,
     ) -> list[str]:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(self.arun(goal_setting, tasks, max_workers))
+            return loop.run_until_complete(self.arun(hearing_setting, tasks, max_workers))
         finally:
             loop.close()
 
