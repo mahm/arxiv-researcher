@@ -240,7 +240,7 @@ class ArxivResearcher(EventEmitter):
         return Message(
             content=ExpandMessage(
                 role="assistant",
-                title="クエリを書き換えました",
+                title="計画を作成しました",
                 content=goal.content,
             )
         )
