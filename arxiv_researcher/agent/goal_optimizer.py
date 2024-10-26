@@ -71,6 +71,8 @@ class GoalOptimizer:
         self.conversation_history = []
 
     def run(self, query: str, history) -> Goal:
+        if not isinstance(history, str):
+            raise ValueError("history must be a string")
         prompt = ChatPromptTemplate.from_template(QUERY_REWRITE_PROMPT)
         chain = prompt | self.llm.with_structured_output(Goal)
         query_rewrite = chain.invoke(
@@ -79,9 +81,9 @@ class GoalOptimizer:
                 "conversation_history": history, 
             }
         )
-        print("会話履歴", history)
+        # print("会話履歴", history)
         self._add_history("user", query)
-        print("実行の結果", query_rewrite)
+        # print("実行の結果", query_rewrite)
         self._add_history("assistant", query_rewrite.content)
         return query_rewrite
 

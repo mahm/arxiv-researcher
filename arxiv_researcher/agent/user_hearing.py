@@ -93,22 +93,39 @@ class Hearing(BaseModel):
     additional_question: str = Field(default="", description="追加の質問")
 
 class HumanFeedbackChecker:
+    MAX_HISTORY_SIZE = 10
+
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
         self.conversation_history = []
 
     def run(self, query: str) -> tuple[Hearing, str]:
-        prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
-        chain = prompt | self.llm.with_structured_output(Hearing)
-        hearing = chain.invoke(
-            {
-                "current_date": self.current_date,
-                "conversation_history": self._format_history(),
-                "query": query,
-            }
-        )
+        # prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
+        # chain = prompt | self.llm.with_structured_output(Hearing)
+        # hearing = chain.invoke(
+        #     {
+        #         "current_date": self.current_date,
+        #         "conversation_history": self._format_history(),
+        #         "query": query,
+        #     }
+        # )
+        try:
+            prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
+            chain = prompt | self.llm.with_structured_output(Hearing)
+            hearing = chain.invoke(
+                {
+                    "current_date": self.current_date,
+                    "conversation_history": self._format_history(),
+                    "query": query,
+                }
+            )
+        except Exception as e:
+            raise RuntimeError(f"LLMの呼び出し中にエラーが発生しました: {str(e)}")
+
         self._add_history("user", query)
+        if len(self.conversation_history) >= self.MAX_HISTORY_SIZE:
+            self.conversation_history.pop(0)
         if hearing.is_need_human_feedback:
             self._add_history("assistant", hearing.additional_question)
         return hearing, self._format_history()
@@ -126,3 +143,6 @@ class HumanFeedbackChecker:
 
     def reset(self):
         self.conversation_history = []
+        
+    def __del__(self):
+        self.reset()

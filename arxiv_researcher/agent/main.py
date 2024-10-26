@@ -61,11 +61,11 @@ class ArxivResearcher(EventEmitter):
         self.on(event, subscriber)
 
     def handle_human_message(self, query: str, thread_id: str) -> Iterator[Message]:
-        # print(f"Handling message for query: {query}, thread_id: {thread_id}")
+        logger.debug(f"メッセージ処理開始: query={query}, thread_id={thread_id}")
         node = (
             "human_feedback" if self.is_next_human_feedback_node(thread_id) else START
         )
-        print(f"現在のノード: {node}")
+        logger.debug(f"現在のノード: {node}")
         self.graph.update_state(
             config=self._config(thread_id),
             values={"human_inputs": [query]},
