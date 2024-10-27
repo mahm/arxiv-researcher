@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-QUERY_REWRITE_PROMPT = """\
+GOAL_OPTIMIZER_PROMPT = """\
 CURRENT_DATE: {current_date}
 -----
 <system>
@@ -70,25 +70,17 @@ class GoalOptimizer:
         self.current_date = datetime.now().strftime("%Y-%m-%d")
         self.conversation_history = []
 
-    def run(self, query: str, history) -> Goal:
-        if not isinstance(history, str):
-            raise ValueError("history must be a string")
-        prompt = ChatPromptTemplate.from_template(QUERY_REWRITE_PROMPT)
+    def run(self, history: list) -> Goal:
+        self.conversation_history = history
+        prompt = ChatPromptTemplate.from_template(GOAL_OPTIMIZER_PROMPT)
         chain = prompt | self.llm.with_structured_output(Goal)
-        query_rewrite = chain.invoke(
+        goal = chain.invoke(
             {
                 "current_date": self.current_date,
-                "conversation_history": history, 
+                "conversation_history": self._format_history(), 
             }
         )
-        # print("会話履歴", history)
-        self._add_history("user", query)
-        # print("実行の結果", query_rewrite)
-        self._add_history("assistant", query_rewrite.content)
-        return query_rewrite
-
-    def _add_history(self, role: Literal["user", "assistant"], content: str):
-        self.conversation_history.append({"role": role, "content": content})
+        return goal
 
     def _format_history(self):
         return "\n".join(

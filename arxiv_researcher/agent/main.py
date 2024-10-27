@@ -31,6 +31,7 @@ class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)
     hearing: Hearing = Field(default=None)
     goal: Goal = Field(default=None)
+    history: list[dict[str, str]] = Field(default_factory=list)
     tasks: list[str] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
     final_output: str = Field(default="")
@@ -42,7 +43,6 @@ class ArxivResearcher(EventEmitter):
         self.subscribers: list[Callable[[str, Message], None]] = []
         self.user_hearing = HumanFeedbackChecker(llm)
         self.goal_optimizer = GoalOptimizer(llm)
-        self.history = ""
         self.query_decomposer = QueryDecomposer(llm)
         self.task_executor = TaskExecutor(
             llm, searcher=ArxivSearcher(llm, event_emitter=self)
@@ -119,8 +119,8 @@ class ArxivResearcher(EventEmitter):
     def _user_hearing(self, state: ArxivResearcherState) -> dict:
         logger.info("hearing")
         human_input = state.human_inputs[-1]
-        hearing, self.history = self.user_hearing.run(human_input)
-        return {"hearing": hearing}
+        hearing, history = self.user_hearing.run(human_input)
+        return {"hearing": hearing, "history": history}
 
     def _route_user_hearing(
         self, state: ArxivResearcherState
@@ -136,8 +136,7 @@ class ArxivResearcher(EventEmitter):
 
     def _goal_setting(self, state: ArxivResearcherState) -> dict:
         logger.info("goal_setting")
-        human_input = state.human_inputs[-1]
-        goal: GoalOptimizer = self.goal_optimizer.run(human_input, self.history)
+        goal: GoalOptimizer = self.goal_optimizer.run(state.history)
         return {"goal": goal}
 
     def _decompose_query(self, state: ArxivResearcherState) -> dict:

@@ -101,15 +101,6 @@ class HumanFeedbackChecker:
         self.conversation_history = []
 
     def run(self, query: str) -> tuple[Hearing, str]:
-        # prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
-        # chain = prompt | self.llm.with_structured_output(Hearing)
-        # hearing = chain.invoke(
-        #     {
-        #         "current_date": self.current_date,
-        #         "conversation_history": self._format_history(),
-        #         "query": query,
-        #     }
-        # )
         try:
             prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
             chain = prompt | self.llm.with_structured_output(Hearing)
@@ -128,7 +119,7 @@ class HumanFeedbackChecker:
             self.conversation_history.pop(0)
         if hearing.is_need_human_feedback:
             self._add_history("assistant", hearing.additional_question)
-        return hearing, self._format_history()
+        return hearing, self.conversation_history
 
     def _add_history(self, role: Literal["user", "assistant"], content: str):
         self.conversation_history.append({"role": role, "content": content})
@@ -143,6 +134,6 @@ class HumanFeedbackChecker:
 
     def reset(self):
         self.conversation_history = []
-        
+
     def __del__(self):
         self.reset()
