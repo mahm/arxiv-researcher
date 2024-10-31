@@ -20,39 +20,39 @@ class TaskExecutor:
 
     def run(
         self,
-        goal_setting: str,
+        user_hearing: str,
         tasks: list[str],
         max_workers: int = settings.max_workers,
     ) -> list[str]:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(self.arun(goal_setting, tasks, max_workers))
+            return loop.run_until_complete(self.arun(user_hearing, tasks, max_workers))
         finally:
             loop.close()
 
     async def arun(
         self,
-        goal_setting: str,
+        user_hearing: str,
         tasks: list[str],
         max_workers: int = settings.max_workers,
     ) -> list[str]:
         results = []
         semaphore = asyncio.Semaphore(max_workers)
 
-        async def search_task(goal_setting: str, query: str) -> list[str]:
+        async def search_task(user_hearing: str, query: str) -> list[str]:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
                 self.executor,
                 self.searcher.run,
-                goal_setting,
+                user_hearing,
                 query,
             )
 
         async def bounded_search(task):
             async with semaphore:
                 try:
-                    result = await search_task(goal_setting, task)
+                    result = await search_task(user_hearing, task)
                     results.extend(result)
                 except Exception as e:
                     print(f"タスク '{task}' の実行中にエラーが発生しました: {e}")
@@ -74,5 +74,5 @@ if __name__ == "__main__":
     searcher = ArxivSearcher(settings.llm, event_emitter, max_results=10)
 
     executor = TaskExecutor(settings.llm, searcher)
-    results = executor.run(goal_setting="", tasks=["量子コンピューティング"])
+    results = executor.run(user_hearing="", tasks=["量子コンピューティング"])
     print(results)
