@@ -1,3 +1,6 @@
+
+
+
 import operator
 from logging import getLogger
 from typing import Annotated, Callable, Iterator, Literal
@@ -31,6 +34,7 @@ class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)
     hearing: Hearing = Field(default=None)
     goal: Goal = Field(default=None)
+    history: list[dict[str, str]] = Field(default_factory=list)
     tasks: list[str] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
     final_output: str = Field(default="")
@@ -48,8 +52,6 @@ class ArxivResearcher(EventEmitter):
         )
         self.reporter = Reporter(llm)
         self.graph = self._create_graph()
-
-        self.history: list[dict[str, str]] = []
 
     def _notify(
         self,
@@ -119,13 +121,13 @@ class ArxivResearcher(EventEmitter):
     def _user_hearing(self, state: ArxivResearcherState) -> dict:
         logger.info("hearing")
         human_input = state.human_inputs[-1]
-        hearing = self.user_hearing.run(human_input, self.history)
-        self.history.append({"role": "user", "content": human_input})
+        hearing = self.user_hearing.run(human_input, state.history)
+        state.history.append({"role": "user", "content": human_input})
         if hearing.is_need_human_feedback:
-            self.history.append({"role": "assistant", "content": hearing.additional_question})
-        if len(self.history) > 10:
-            self.history.pop(0)
-        return {"hearing": hearing}
+            state.history.append({"role": "assistant", "content": hearing.additional_question})
+        if len(state.history) > 10:
+            state.history.pop(0)
+        return {"hearing": hearing, "history": state.history}
 
     def _route_user_hearing(
         self, state: ArxivResearcherState
@@ -141,7 +143,7 @@ class ArxivResearcher(EventEmitter):
 
     def _goal_setting(self, state: ArxivResearcherState) -> dict:
         logger.info("goal_setting")
-        goal: GoalOptimizer = self.goal_optimizer.run(self.history)
+        goal: GoalOptimizer = self.goal_optimizer.run(state.history)
         return {"goal": goal}
 
     def _decompose_query(self, state: ArxivResearcherState) -> dict:
@@ -182,10 +184,8 @@ class ArxivResearcher(EventEmitter):
         )
         return {"final_output": final_output}
 
-    def _terminate(self, state: ArxivResearcherState) -> None:
-        logger.info("terminate")
-        self.history.clear()
-        pass
+    def _terminate(self, state: ArxivResearcherState) -> dict:
+        return {"history": []}
 
     def _stream_events(self, query: str | None, thread_id: str) -> Iterator[Message]:
         for event in self.graph.stream(
@@ -287,3 +287,4 @@ class ArxivResearcher(EventEmitter):
                 content="調査が終了しました。新しい文献調査を行う場合は、続けて質問してください。",
             ),
         )
+
