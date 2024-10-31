@@ -1,6 +1,3 @@
-
-
-
 import operator
 from logging import getLogger
 from typing import Annotated, Callable, Iterator, Literal
