@@ -93,47 +93,30 @@ class Hearing(BaseModel):
     additional_question: str = Field(default="", description="追加の質問")
 
 class HumanFeedbackChecker:
-    MAX_HISTORY_SIZE = 10
-
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
-        self.conversation_history = []
 
-    def run(self, query: str) -> tuple[Hearing, str]:
+    def run(self, query: str, history: list) -> Hearing:
         try:
             prompt = ChatPromptTemplate.from_template(HumanFeedbackChecker_PROMPT)
             chain = prompt | self.llm.with_structured_output(Hearing)
             hearing = chain.invoke(
                 {
                     "current_date": self.current_date,
-                    "conversation_history": self._format_history(),
+                    "conversation_history": self._format_history(history), 
                     "query": query,
                 }
             )
         except Exception as e:
             raise RuntimeError(f"LLMの呼び出し中にエラーが発生しました: {str(e)}")
 
-        self._add_history("user", query)
-        if len(self.conversation_history) >= self.MAX_HISTORY_SIZE:
-            self.conversation_history.pop(0)
-        if hearing.is_need_human_feedback:
-            self._add_history("assistant", hearing.additional_question)
-        return hearing, self.conversation_history
+        return hearing
 
-    def _add_history(self, role: Literal["user", "assistant"], content: str):
-        self.conversation_history.append({"role": role, "content": content})
-
-    def _format_history(self):
+    def _format_history(self, history):
         return "\n".join(
             [
                 f"{message['role']}: {message['content']}"
-                for message in self.conversation_history
+                for message in history
             ]
         )
-
-    def reset(self):
-        self.conversation_history = []
-
-    def __del__(self):
-        self.reset()

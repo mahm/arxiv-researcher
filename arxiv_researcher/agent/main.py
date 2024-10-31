@@ -31,7 +31,6 @@ class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)
     hearing: Hearing = Field(default=None)
     goal: Goal = Field(default=None)
-    history: list[dict[str, str]] = Field(default_factory=list)
     tasks: list[str] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
     final_output: str = Field(default="")
@@ -49,6 +48,8 @@ class ArxivResearcher(EventEmitter):
         )
         self.reporter = Reporter(llm)
         self.graph = self._create_graph()
+
+        self.history: list[dict[str, str]] = []
 
     def _notify(
         self,
@@ -81,7 +82,6 @@ class ArxivResearcher(EventEmitter):
         return self.graph.get_graph().draw_mermaid_png()
 
     def reset(self) -> None:
-        # self.graph.reset()
         self.graph = self._create_graph()
 
     def _create_graph(self) -> StateGraph:
@@ -119,8 +119,13 @@ class ArxivResearcher(EventEmitter):
     def _user_hearing(self, state: ArxivResearcherState) -> dict:
         logger.info("hearing")
         human_input = state.human_inputs[-1]
-        hearing, history = self.user_hearing.run(human_input)
-        return {"hearing": hearing, "history": history}
+        hearing = self.user_hearing.run(human_input, self.history)
+        self.history.append({"role": "user", "content": human_input})
+        if hearing.is_need_human_feedback:
+            self.history.append({"role": "assistant", "content": hearing.additional_question})
+        if len(self.history) > 10:
+            self.history.pop(0)
+        return {"hearing": hearing}
 
     def _route_user_hearing(
         self, state: ArxivResearcherState
@@ -136,7 +141,7 @@ class ArxivResearcher(EventEmitter):
 
     def _goal_setting(self, state: ArxivResearcherState) -> dict:
         logger.info("goal_setting")
-        goal: GoalOptimizer = self.goal_optimizer.run(state.history)
+        goal: GoalOptimizer = self.goal_optimizer.run(self.history)
         return {"goal": goal}
 
     def _decompose_query(self, state: ArxivResearcherState) -> dict:
@@ -179,7 +184,7 @@ class ArxivResearcher(EventEmitter):
 
     def _terminate(self, state: ArxivResearcherState) -> None:
         logger.info("terminate")
-        self.user_hearing.reset()
+        self.history.clear()
         pass
 
     def _stream_events(self, query: str | None, thread_id: str) -> Iterator[Message]:
@@ -190,7 +195,6 @@ class ArxivResearcher(EventEmitter):
         ):
             # 実行ノードの情報を取得
             node = list(event.keys())[0]
-            print(f"現在のノード: {node}")
             if node in [
                 "user_hearing",
                 "goal_setting",

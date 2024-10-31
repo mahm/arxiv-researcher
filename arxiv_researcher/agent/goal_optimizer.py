@@ -68,28 +68,22 @@ class GoalOptimizer:
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
-        self.conversation_history = []
 
     def run(self, history: list) -> Goal:
-        self.conversation_history = history
         prompt = ChatPromptTemplate.from_template(GOAL_OPTIMIZER_PROMPT)
         chain = prompt | self.llm.with_structured_output(Goal)
         goal = chain.invoke(
             {
                 "current_date": self.current_date,
-                "conversation_history": self._format_history(), 
+                "conversation_history": self._format_history(history), 
             }
         )
         return goal
 
-    def _format_history(self):
+    def _format_history(self, history):
         return "\n".join(
             [
                 f"{message['role']}: {message['content']}"
-                for message in self.conversation_history
+                for message in history
             ]
         )
-
-    def reset(self):
-        self.conversation_history = []
-
