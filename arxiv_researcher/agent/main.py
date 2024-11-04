@@ -10,11 +10,11 @@ from langgraph.pregel.types import StateSnapshot
 from pydantic import BaseModel, Field
 
 from arxiv_researcher.agent.event_emitter import EventEmitter
-from arxiv_researcher.agent.user_hearing import Hearing, HumanFeedbackChecker
 from arxiv_researcher.agent.goal_optimizer import Goal, GoalOptimizer
 from arxiv_researcher.agent.query_decomposer import DecomposedTasks, QueryDecomposer
 from arxiv_researcher.agent.reporter import Reporter
 from arxiv_researcher.agent.task_executor import TaskExecutor
+from arxiv_researcher.agent.user_hearing import Hearing, HumanFeedbackChecker
 from arxiv_researcher.agent.utility import dict_to_xml_str
 from arxiv_researcher.searcher.arxiv_searcher import ArxivSearcher
 from arxiv_researcher.ui.types import (
@@ -26,6 +26,7 @@ from arxiv_researcher.ui.types import (
 )
 
 logger = getLogger(__name__)
+
 
 class ArxivResearcherState(BaseModel):
     human_inputs: Annotated[list[str], operator.add] = Field(default_factory=list)
@@ -121,7 +122,9 @@ class ArxivResearcher(EventEmitter):
         hearing = self.user_hearing.run(human_input, state.history)
         state.history.append({"role": "user", "content": human_input})
         if hearing.is_need_human_feedback:
-            state.history.append({"role": "assistant", "content": hearing.additional_question})
+            state.history.append(
+                {"role": "assistant", "content": hearing.additional_question}
+            )
         if len(state.history) > 10:
             state.history.pop(0)
         return {"hearing": hearing, "history": state.history}
@@ -234,13 +237,13 @@ class ArxivResearcher(EventEmitter):
                     content="",
                 )
             )
-        
+
     def _goal_setting_message(self, update_state: dict) -> Message:
         goal: GoalOptimizer = update_state["goal"]
         return Message(
             content=ExpandMessage(
                 role="assistant",
-                title="計画を作成しました",
+                title="ゴールを作成しました",
                 content=goal.content,
             )
         )
@@ -250,7 +253,7 @@ class ArxivResearcher(EventEmitter):
         return Message(
             content=ExpandMessage(
                 role="assistant",
-                title="タスクを分解しました",
+                title="調査タスクを分解しました",
                 content=tasks,
             )
         )
@@ -284,4 +287,3 @@ class ArxivResearcher(EventEmitter):
                 content="調査が終了しました。新しい文献調査を行う場合は、続けて質問してください。",
             ),
         )
-
