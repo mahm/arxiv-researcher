@@ -20,13 +20,14 @@ class Settings(BaseSettings):
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "arxiv-researcher"
 
-    # for Application\
+    # for Application
     openai_fast_model: str = "gpt-4o-mini"
     openai_smart_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"
     cohere_rerank_model: str = "rerank-multilingual-v3.0"
+    hf_embeddings_model: str = "intfloat/e5-large-v2"
     temperature: float = 0.0
-    max_search_results: int = 100
+    max_search_results: int = 5
     max_workers: int = 5
     debug: bool = True
 
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     @property
     def llm(self) -> ChatOpenAI:
         return ChatOpenAI(model=self.openai_smart_model)
+
+    @property
+    def fast_llm(self) -> ChatOpenAI:
+        return ChatOpenAI(model=self.openai_fast_model)
 
     @property
     def cohere_client(self) -> cohere.Client:

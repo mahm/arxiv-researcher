@@ -1,57 +1,35 @@
 from datetime import datetime
 from typing import Literal
 
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
 
-GOAL_OPTIMIZER_PROMPT = """\
+CONVERSATION_BASED_PROMPT = """\
 CURRENT_DATE: {current_date}
 -----
 <system>
-あなたは文献調査のスペシャリストです。ユーザーの質問を深く理解し、質の高い回答を作成するための計画を作成することがあなたのゴールです。以下の指示に従って、ユーザーとのやり取りを行ってください。
+あなたは文献調査のスペシャリストです。ユーザーの要求を深く理解し、質の高い回答を作成するための目標を立てることがあなたのゴールです。
 </system>
-
-## 主要タスク
-
-- 会話履歴を考慮して計画を立てる
 
 ## 詳細な指示
 
 <instructions>
-会話全体のコンテキストを考慮して、以下のフォーマットで回答を作成するための指示リストを作成してください。
-
-段落1：段落1の指示
-段落2：段落2の指示
-...
-段落N：段落Nの指示
+1. ユーザーとの会話履歴を活用し、どのようなレポートを作成するべきかを定義しなさい。
+2. レポートに含めるべき内容の具体的なチェックリストを作成しなさい。
+3. チェックリストには、必ずユーザーの要求を満たすために必要な内容についての具体的な文言を含めること。
+4. 受け入れ条件を明確に定義しなさい。
 </instructions>
 
-## 重要なルール
+## 出力フォーマット
 
-<rules>
-1. 各段落は独立して並行して書かれるように設計する。
-2. 段落の集合が質問に対する回答を形成できるようにする。
-3. 各段落がどのような情報を含むべきか、またどの情報を避けるべきかを明確にする
-</rules>
+<output_format>
+### 目的の定義
 
-## 例
+### チェックリスト
 
-<example>
-ユーザー: 事実に関する質問に対するモデルの回答の正確性を検証するためのデータセットを推薦してください。
-アシスタント: [追加情報が必要]どの学術分野や領域のデータセットにご興味がありますか？
-
-ユーザー: コンピュータサイエンスのNLP
-アシスタント: [計画を作成]
-段落1：データセットの概要
-この段落では、NLPにおける事実検証に特化したデータセットの概要を説明します。データセットの種類、主な用途、およびそのデータセットがどのようにして事実検証に貢献するかに焦点を当てます。他の段落で詳細に説明する具体的なデータセットの名前や特性には触れません。
-
-段落2：データセットの例と詳細
-この段落では、具体的なデータセット（例：FEVER, SQuADなど）を紹介し、それぞれのデータセットの詳細な特徴や提供する情報の種類について説明します。ここでは、それぞれのデータセットがどのように構築され、どのような問題に対応しているかを明らかにします。段落1で紹介した一般的な情報を繰り返さないようにします。
-
-段落3：データセットの使用事例と影響
-この段落では、選ばれたデータセットが実際にどのように使用されているか、およびこれが研究や業界にどのような影響を与えているかを詳述します。具体的な研究事例やプロジェクトを挙げ、データセットの実用性とその成果に焦点を当てます。段落2で触れた具体的なデータの特性に基づく使用事例を提供し、その効果を強調します。
-</example>
+### 受け入れ条件
+</output_format>
 
 ## 入力フォーマット
 
@@ -61,29 +39,100 @@ CURRENT_DATE: {current_date}
 </input_format>
 """.strip()
 
-class Goal(BaseModel):
-    content: str = Field(default="", description="計画の内容")
+SEARCH_BASED_PROMPT = """\
+CURRENT_DATE: {current_date}
+-----
+<system>
+あなたは文献調査のスペシャリストです。検索結果と会話履歴を分析し、質の高い回答を作成するための目標を立てることがあなたのゴールです。
+</system>
+
+## 詳細な指示
+
+<instructions>
+1. 検索結果とユーザーとの会話履歴を活用し、検索結果と会話全体のコンテキストを考慮した上で、どのようなレポートを作成するべきかを定義しなさい。
+2. レポートに含めるべき内容の具体的なチェックリストを作成しなさい。
+3. チェックリストには、必ずユーザーの要求を満たすために必要な内容についての具体的な文言を含めること。
+4. 受け入れ条件を明確に定義しなさい。
+5. 改善のヒントを必ず踏まえること。
+</instructions>
+
+## 出力フォーマット
+
+<output_format>
+### 目的の定義
+
+### チェックリスト
+
+### 受け入れ条件
+</output_format>
+
+## 入力フォーマット
+
+<input_format>
+会話履歴:
+{conversation_history}
+
+検索結果:
+{search_results}
+
+改善のヒント:
+{improvement_hint}
+</input_format>
+""".strip()
+
 
 class GoalOptimizer:
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.current_date = datetime.now().strftime("%Y-%m-%d")
 
-    def run(self, history: list) -> Goal:
-        prompt = ChatPromptTemplate.from_template(GOAL_OPTIMIZER_PROMPT)
-        chain = prompt | self.llm.with_structured_output(Goal)
-        goal = chain.invoke(
-            {
-                "current_date": self.current_date,
-                "conversation_history": self._format_history(history), 
-            }
+    def run(
+        self,
+        history: list,
+        mode: Literal["conversation", "search"] = "conversation",
+        search_results: list | None = None,
+        improvement_hint: str | None = None,
+    ) -> str:
+        template = (
+            SEARCH_BASED_PROMPT if mode == "search" else CONVERSATION_BASED_PROMPT
         )
-        return goal
+        prompt = ChatPromptTemplate.from_template(template)
+        chain = prompt | self.llm | StrOutputParser()
+
+        inputs = {
+            "current_date": self.current_date,
+            "conversation_history": self._format_history(history),
+        }
+
+        if mode == "search" and search_results:
+            inputs["search_results"] = self._format_search_results(search_results)
+        if improvement_hint:
+            inputs["improvement_hint"] = improvement_hint
+
+        return chain.invoke(inputs)
 
     def _format_history(self, history):
         return "\n".join(
+            [f"{message['role']}: {message['content']}" for message in history]
+        )
+
+    def _format_search_results(self, results: list) -> str:
+        return "\n\n".join(
             [
-                f"{message['role']}: {message['content']}"
-                for message in history
+                f"Title: {result.get('title', '')}\n"
+                f"Abstract: {result.get('abstract', '')}"
+                for result in results
             ]
         )
+
+
+if __name__ == "__main__":
+    optimizer = GoalOptimizer(ChatOpenAI(model="gpt-4o-mini"))
+
+    history = [
+        {
+            "role": "user",
+            "content": "LLMによるコード生成タスクを評価するためのデータセットをリストアップしてください。最新かつ効果検証されているものを網羅的にお願いします。",
+        },
+    ]
+    print(optimizer.run(history=history, mode="conversation"))
