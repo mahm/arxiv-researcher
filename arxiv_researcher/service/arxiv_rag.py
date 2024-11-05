@@ -43,23 +43,13 @@ class ArxivRAG:
     def _expand_query(self, query: str) -> str:
         prompt = PromptTemplate.from_template(
             """\
-Please expand the following query into a focused academic search format.
-Generate a concise and specific search query including:
+Please recreate the following query into a focused academic search format.
 
-- Core concepts and their synonyms
-- Related technical terms and methodologies
-- Key domain-specific keywords
-
-Example:
-- "Code Generation Datasets in Research and Industry"
-- "Case Studies on Code Synthesis Applications"
-- "Effectiveness of Automated Code Generation Data"
-- "Practical Applications of Program Synthesis Datasets"
-- "Impact Assessment of Code Generation in Software Development" 
+<example>
+Code Generation Datasets in Research and Industry
+</example>
             
-Query: {query}
-
-Expanded Query:"""
+Query: {query}"""
         )
 
         chain = prompt | settings.fast_llm | StrOutputParser()

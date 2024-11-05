@@ -302,7 +302,7 @@ class ArxivResearcher(EventEmitter):
             return Message(
                 content=ChatMessage(
                     role="assistant",
-                    content="ヒアリングが完了しました",
+                    content="ご協力ありがとうございました。頂いた内容を基に文献調査を行います。",
                 )
             )
 

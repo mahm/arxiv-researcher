@@ -28,14 +28,12 @@ goal_settingタグの内容は事前情報がない状態で生成された可�
 class GoalEvaluation(BaseModel):
     is_reset: bool = Field(
         default=False,
-        description="目標を見直す必要があるかどうか",
+        description="目標を見直す必要がある場合はTrue",
     )
     reason: str = Field(
-        default="",
         description="目標を見直す必要がある理由を日本語で端的に表す",
     )
     content: str = Field(
-        default="",
         description="評価結果を踏まえて、改めてレポート生成のためのクエリを日本語で表す",
     )
 

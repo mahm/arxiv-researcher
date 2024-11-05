@@ -29,14 +29,12 @@ goal_settingタグに記述された内容を実現するため、contextタグ�
 class TaskEvaluation(BaseModel):
     is_reset: bool = Field(
         default=False,
-        description="最終レポートを生成するためにさらに情報が必要かどうか",
+        description="最終レポートを生成するためにさらに情報が必要な場合はTrue",
     )
     reason: str = Field(
-        default="",
         description="評価の理由を日本語で端的に表す",
     )
     content: str = Field(
-        default="",
         description="追加の調査として必要な内容を詳細に日本語で記述",
     )
 
