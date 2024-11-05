@@ -56,13 +56,70 @@ class TaskExecutor:
         try:
             await asyncio.gather(
                 *[
-                    self._bounded_search(task, user_hearing, semaphore, results)
+                    self._process_task(task, user_hearing, semaphore, results)
                     for task in tasks
                 ]
             )
             return results
         except Exception as e:
             raise TaskExecutionError(f"タスクの実行中にエラーが発生しました: {e}")
+
+    async def _process_task(
+        self,
+        task: str,
+        user_hearing: str,
+        semaphore: asyncio.Semaphore,
+        results: list[dict],
+    ) -> None:
+        # LLMに検索が必要かどうかを判断させる
+        needs_search = await self._check_if_search_needed(task)
+
+        if needs_search:
+            await self._bounded_search(task, user_hearing, semaphore, results)
+        else:
+            # LLM単体で回答を生成
+            direct_answer = await self._get_direct_llm_answer(task)
+            results.append(
+                {
+                    "answer": direct_answer,
+                    "title": "Direct Answer from LLM",
+                    "pdf_link": None,
+                    "summary": None,
+                }
+            )
+
+    async def _check_if_search_needed(self, task: str) -> bool:
+        prompt = f"""\
+以下の質問に対して、arXiv論文の検索が必要かどうかを判断してください。
+        
+質問: {task}
+
+以下の場合は論文検索が必要です：
+- 最新の研究動向や具体的な研究事例が必要な場合
+- 特定の技術や手法の詳細な実装例が必要な場合
+- 実験結果や比較データが必要な場合
+
+以下の場合は論文検索が不要です：
+- 一般的な概念の説明で十分な場合
+- 基本的な定義や説明で回答可能な場合
+- 広く知られている情報で回答可能な場合
+
+回答は "True" または "False" のみを返してください。
+        """.strip()
+
+        limited_llm = self.llm.with_config({"max_tokens": 1})
+        response = await limited_llm.ainvoke(prompt)
+        return response.content.strip().lower() == "true"
+
+    async def _get_direct_llm_answer(self, task: str) -> str:
+        prompt = f"""\
+以下の質問に対して、あなたの知識に基づいて回答してください：
+
+質問: {task}
+        """.strip()
+
+        response = await self.llm.ainvoke(prompt)
+        return response.content.strip()
 
     async def _bounded_search(
         self,
