@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "arxiv-researcher"
 
-    # for Application\
+    # for Application
     openai_fast_model: str = "gpt-4o-mini"
     openai_smart_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"

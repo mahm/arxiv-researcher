@@ -115,7 +115,10 @@ def main():
     for message in st.session_state.messages:
         show_message(message)
 
-    query = st.chat_input("What do you want to know? I will give you an answer.")
+    query = st.chat_input(
+        "What do you want to know? I will give you an answer.",
+        disabled=st.session_state.app_state == AppState.PROCESSING,
+    )
 
     if query and st.session_state.app_state != AppState.PROCESSING:
         st.session_state.messages.append(

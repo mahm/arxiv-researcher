@@ -9,21 +9,19 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.pregel.types import StateSnapshot
 from pydantic import BaseModel, Field
 
+from arxiv_researcher.agent.evaluator import Evaluation, Evaluator
 from arxiv_researcher.agent.event_emitter import EventEmitter
 from arxiv_researcher.agent.goal_optimizer import Goal, GoalOptimizer
-from arxiv_researcher.agent.query_decomposer import DecomposedTasks, QueryDecomposer
+from arxiv_researcher.agent.query_decomposer import (DecomposedTasks,
+                                                     QueryDecomposer)
 from arxiv_researcher.agent.reporter import Reporter
 from arxiv_researcher.agent.task_executor import TaskExecutor
 from arxiv_researcher.agent.user_hearing import Hearing, HumanFeedbackChecker
 from arxiv_researcher.agent.utility import dict_to_xml_str
 from arxiv_researcher.searcher.arxiv_searcher import ArxivSearcher
-from arxiv_researcher.ui.types import (
-    AlertMessage,
-    ChatMessage,
-    DataframeMessage,
-    ExpandMessage,
-    Message,
-)
+from arxiv_researcher.ui.types import (AlertMessage, ChatMessage,
+                                       DataframeMessage, ExpandMessage,
+                                       Message)
 
 logger = getLogger(__name__)
 
@@ -35,6 +33,7 @@ class ArxivResearcherState(BaseModel):
     history: list[dict[str, str]] = Field(default_factory=list)
     tasks: list[str] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
+    evaluation: Evaluation = Field(default=None)
     final_output: str = Field(default="")
 
 
@@ -48,6 +47,7 @@ class ArxivResearcher(EventEmitter):
         self.task_executor = TaskExecutor(
             llm, searcher=ArxivSearcher(llm, event_emitter=self)
         )
+        self.evaluator = Evaluator(llm)
         self.reporter = Reporter(llm)
         self.graph = self._create_graph()
 
@@ -91,6 +91,7 @@ class ArxivResearcher(EventEmitter):
         graph.add_node("goal_setting", self._goal_setting)
         graph.add_node("decompose_query", self._decompose_query)
         graph.add_node("execute_task", self._execute_task)
+        graph.add_node("evaluate_task", self._evaluate_task)
         graph.add_node("generate_report", self._generate_report)
         graph.add_node("terminate", self._terminate)
 
@@ -100,6 +101,7 @@ class ArxivResearcher(EventEmitter):
         graph.add_edge("goal_setting", "decompose_query")
         graph.add_edge("decompose_query", "execute_task")
         graph.add_conditional_edges("execute_task", self._route_execute_task)
+        graph.add_conditional_edges("evaluate_task", self._route_evaluate_task)
         graph.add_edge("generate_report", "terminate")
         graph.add_edge("terminate", END)
 
@@ -148,31 +150,47 @@ class ArxivResearcher(EventEmitter):
 
     def _decompose_query(self, state: ArxivResearcherState) -> dict:
         logger.info("decompose_query")
-        goal: GoalOptimizer = state.goal
-        decomposed_tasks: DecomposedTasks = self.query_decomposer.run(goal.content)
+        content = state.evaluation.content if state.evaluation else state.goal.content
+        decomposed_tasks: DecomposedTasks = self.query_decomposer.run(content)
         return {
             "tasks": decomposed_tasks.tasks,
-            "current_task_index": 0,
-            "results": [],
         }
 
     def _execute_task(self, state: ArxivResearcherState) -> dict:
         logger.info("execute_task")
-        results: list[dict] = self.task_executor.run(
+        new_results: list[dict] = self.task_executor.run(
             user_hearing=state.goal.content,
             tasks=state.tasks,
         )
+        results = [*state.results, *new_results]
         return {
             "results": results,
         }
 
     def _route_execute_task(
         self, state: ArxivResearcherState
-    ) -> Literal["generate_report", "terminate"]:
+    ) -> Literal["evaluate_task", "terminate"]:
         if len(state.results) == 0:
             return "terminate"
         else:
-            return "generate_report"
+            return "evaluate_task"
+
+    def _evaluate_task(self, state: ArxivResearcherState) -> dict:
+        logger.info("evaluate_task")
+        evaluation: Evaluation = self.evaluator.run(
+            context="\n".join([dict_to_xml_str(item) for item in state.results]),
+            goal_setting=state.goal.content,
+        )
+        return {"evaluation": evaluation}
+
+    def _route_evaluate_task(
+        self, state: ArxivResearcherState
+    ) -> Literal["decompose_query", "generate_report"]:
+        return (
+            "decompose_query"
+            if state.evaluation.need_more_information
+            else "generate_report"
+        )
 
     def _generate_report(self, state: ArxivResearcherState) -> dict:
         logger.info("generate_report")
@@ -185,7 +203,16 @@ class ArxivResearcher(EventEmitter):
         return {"final_output": final_output}
 
     def _terminate(self, state: ArxivResearcherState) -> dict:
-        return {"history": []}
+        return {
+            "human_inputs": [],
+            "hearing": None,
+            "goal": None,
+            "history": [],
+            "tasks": [],
+            "results": [],
+            "evaluation": None,
+            "final_output": "",
+        }
 
     def _stream_events(self, query: str | None, thread_id: str) -> Iterator[Message]:
         for event in self.graph.stream(
@@ -200,6 +227,7 @@ class ArxivResearcher(EventEmitter):
                 "goal_setting",
                 "decompose_query",
                 "execute_task",
+                "evaluate_task",
                 "generate_report",
                 "terminate",
             ]:
@@ -214,6 +242,8 @@ class ArxivResearcher(EventEmitter):
             return self._decompose_query_message(update_state)
         elif node == "execute_task":
             return self._execute_task_message(update_state)
+        elif node == "evaluate_task":
+            return self._evaluate_task_message(update_state)
         elif node == "generate_report":
             return self._generate_report_message(update_state)
         elif node == "terminate":
@@ -231,10 +261,9 @@ class ArxivResearcher(EventEmitter):
             )
         else:
             return Message(
-                content=ExpandMessage(
+                content=ChatMessage(
                     role="assistant",
-                    title="ヒアリングが完了しました",
-                    content="",
+                    content="ヒアリングが完了しました",
                 )
             )
 
@@ -271,6 +300,22 @@ class ArxivResearcher(EventEmitter):
                 role="assistant",
                 title=f"参考になる文献が{len(results)}件見つかりました。",
                 content=results,
+            )
+        )
+
+    def _evaluate_task_message(self, update_state: dict) -> Message:
+        evaluation: Evaluation = update_state["evaluation"]
+        title = (
+            "追加の調査が必要です"
+            if evaluation.need_more_information
+            else "十分な情報が集まりました"
+        )
+
+        return Message(
+            content=ExpandMessage(
+                role="assistant",
+                title=title,
+                content=evaluation.reason,
             )
         )
 

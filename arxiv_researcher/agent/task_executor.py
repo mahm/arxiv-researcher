@@ -162,6 +162,9 @@ class TaskExecutor:
         async def process_single_paper(pdf_url: str, search_result: dict) -> dict:
             try:
                 answer = await self._run_rag_for_paper(pdf_url, query)
+                # [NOT_RELATED]の場合はNoneを返して後でフィルタリング
+                if "[NOT_RELATED]" in answer:
+                    return None
                 return {
                     "pdf_url": pdf_url,
                     "answer": answer,
@@ -177,7 +180,13 @@ class TaskExecutor:
         ]
 
         rag_results = await asyncio.gather(*tasks, return_exceptions=True)
-        return [result for result in rag_results if not isinstance(result, Exception)]
+
+        # Noneと例外を除外
+        return [
+            result
+            for result in rag_results
+            if result is not None and not isinstance(result, Exception)
+        ]
 
     async def _run_rag_for_paper(self, pdf_url: str, query: str) -> str:
         try:
