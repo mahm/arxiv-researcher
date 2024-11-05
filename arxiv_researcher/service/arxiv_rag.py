@@ -85,7 +85,12 @@ Please format your answer as follows:
   - [Please quote relevant sections from the paper in detail. If quoting from multiple sections, separate each quote into paragraphs]
     - [Based on the above quotes, explain the content in an easy to understand way]
 - Related Papers
-  - [Please quote sections that mention related research or cited papers in detail, including specific paper titles, authors, and years when available (e.g. "GPT-3: Language Models are Few-Shot Learners" by Brown et al. 2020). If there are references to multiple papers, separate each into paragraphs]
+  - [Please quote sections that mention related research or cited papers in detail, including specific paper titles, authors, and years when available (e.g. "GPT-3: Language Models are Few-Shot Learners" by Brown et al. 2020)]
+  - For each significant paper mentioned:
+    - Title and authors
+    - Key contributions or findings discussed in the context
+    - Why this paper is relevant to the current research
+    - Whether further investigation of this paper is recommended based on its significance to the topic
 
 Note: If no relevant content is found in the paper, please write "[NOT_RELATED]"
 Note: Please ensure quotes are long enough to provide sufficient context."""

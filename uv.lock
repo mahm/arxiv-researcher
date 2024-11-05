@@ -107,6 +107,7 @@ dependencies = [
     { name = "langgraph-checkpoint" },
     { name = "pydantic-settings" },
     { name = "streamlit" },
+    { name = "tenacity" },
 ]
 
 [package.metadata]
@@ -123,6 +124,7 @@ requires-dist = [
     { name = "langgraph-checkpoint", specifier = ">=2.0.1" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "streamlit", specifier = ">=1.39.0" },
+    { name = "tenacity", specifier = ">=8.5.0" },
 ]
 
 [[package]]

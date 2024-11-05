@@ -1,7 +1,14 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+import openai
 from langchain_openai import ChatOpenAI
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from arxiv_researcher.agent.event_emitter import EventEmitter
 from arxiv_researcher.searcher.searcher import Searcher
@@ -88,6 +95,11 @@ class TaskExecutor:
                 }
             )
 
+    @retry(
+        retry=retry_if_exception_type(openai.APIConnectionError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+    )
     async def _check_if_search_needed(self, task: str) -> bool:
         prompt = f"""\
 以下の質問に対して、arXiv論文の検索が必要かどうかを判断してください。
@@ -111,6 +123,11 @@ class TaskExecutor:
         response = await limited_llm.ainvoke(prompt)
         return response.content.strip().lower() == "true"
 
+    @retry(
+        retry=retry_if_exception_type(openai.APIConnectionError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+    )
     async def _get_direct_llm_answer(self, task: str) -> str:
         prompt = f"""\
 以下の質問に対して、あなたの知識に基づいて回答してください：
@@ -188,6 +205,11 @@ class TaskExecutor:
             if result is not None and not isinstance(result, Exception)
         ]
 
+    @retry(
+        retry=retry_if_exception_type(openai.APIConnectionError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+    )
     async def _run_rag_for_paper(self, pdf_url: str, query: str) -> str:
         try:
             loop = asyncio.get_running_loop()

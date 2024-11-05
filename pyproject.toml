@@ -17,4 +17,5 @@ dependencies = [
     "langgraph>=0.2.35",
     "pydantic-settings>=2.5.2",
     "streamlit>=1.39.0",
+    "tenacity>=8.5.0",
 ]
